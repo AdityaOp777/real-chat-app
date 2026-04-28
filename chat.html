@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat App 🔥</title>
+</head>
+<body>
+
+<h2>Real-Time Chat 💬</h2>
+
+<input type="text" id="sender" placeholder="Enter your name"/>
+<input type="text" id="message" placeholder="Enter message"/>
+<button onclick="sendMessage()">Send</button>
+
+<ul id="messages"></ul>
+
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs/lib/stomp.min.js"></script>
+
+<script>
+    let stompClient = null;
+
+    function connect() {
+        let socket = new SockJS("http://localhost:9090/chat");
+        stompClient = Stomp.over(socket);
+
+        stompClient.connect({}, function () {
+            console.log("Connected 🔥");
+
+            stompClient.subscribe("/topic/messages", function (message) 
+            {
+                let msg = JSON.parse(message.body);
+                showMessage(msg);
+            });
+        });
+    }
+
+    function sendMessage() 
+    {
+        let sender = document.getElementById("sender").value;
+        let content = document.getElementById("message").value;
+
+        let message = 
+        {
+            sender: sender,
+            content: content
+        };
+
+       stompClient.send("/app/send", {}, JSON.stringify(message));
+    }
+
+    function showMessage(message) 
+    {
+        let li = document.createElement("li");
+        li.innerText = message.sender + ": " + message.content;
+        document.getElementById("messages").appendChild(li);
+    }
+
+    function loadOldMessages() 
+    {
+        fetch("http://localhost:9090/messages")
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("messages").innerHTML = ""; // clear
+                data.forEach(msg => showMessage(msg));
+            })
+            .catch(err => console.error("Error loading messages:", err));
+    }
+
+    connect();
+    loadOldMessages();
+</script>
+
+</body>
+</html>
