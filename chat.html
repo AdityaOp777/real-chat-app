@@ -8,8 +8,11 @@
 <h2>Real-Time Chat 💬</h2>
 
 <input type="text" id="sender" placeholder="Enter your name"/>
+<input type="text" id="receiver" placeholder="Send to (username)"/>
 <input type="text" id="message" placeholder="Enter message"/>
 <button onclick="sendMessage()">Send</button>
+<button onclick="sendPrivateMessage()">Send Private</button>
+<button onclick="connect()">Connect</button>
 
 <ul id="messages"></ul>
 
@@ -19,19 +22,70 @@
 <script>
     let stompClient = null;
 
-    function connect() {
+    function connect() 
+    {
+        let sender = document.getElementById("sender").value;
+
+        if (!sender) {
+            alert("Enter your name first!");
+            return;
+        }
+
         let socket = new SockJS("http://localhost:9090/chat");
         stompClient = Stomp.over(socket);
 
-        stompClient.connect({}, function () {
+        stompClient.connect({}, function () 
+        {
             console.log("Connected 🔥");
 
+            // ✅ Broadcast messages
             stompClient.subscribe("/topic/messages", function (message) 
             {
                 let msg = JSON.parse(message.body);
                 showMessage(msg);
             });
+
+            // 🔥 PRIVATE SUBSCRIBE (FIXED)
+            stompClient.subscribe("/topic/private/" + sender, function (message) 
+            {
+                let msg = JSON.parse(message.body);
+                showMessage(msg);
+            });
+
+            // ✅ JOIN message
+            let joinMessage = 
+            {
+                sender: sender,
+                content: sender + " has joined the chat!",
+                type: "JOIN"
+            };
+
+            stompClient.send("/app/send", {}, JSON.stringify(joinMessage));
         });
+    }
+
+    function sendPrivateMessage() 
+    {
+        let sender = document.getElementById("sender").value;
+        let receiver = document.getElementById("receiver").value;
+        let content = document.getElementById("message").value;
+
+        if (!receiver) {
+            alert("Enter receiver name!");
+            return;
+        }
+
+        let msg = 
+        {
+            sender: sender,
+            receiver: receiver,
+            content: content,
+            type: "CHAT"
+        };
+
+        console.log("Private Sending:", msg);
+
+        stompClient.send("/app/private", {}, JSON.stringify(msg));
     }
 
     function sendMessage() 
@@ -42,16 +96,30 @@
         let message = 
         {
             sender: sender,
-            content: content
+            content: content,
+            type: "CHAT"
         };
 
-       stompClient.send("/app/send", {}, JSON.stringify(message));
+        stompClient.send("/app/send", {}, JSON.stringify(message));
     }
 
     function showMessage(message) 
     {
         let li = document.createElement("li");
-        li.innerText = message.sender + ": " + message.content;
+
+        if (message.type === "JOIN") 
+        {
+            li.innerText = "🟢 " + message.content;
+        } 
+        else if (message.type === "LEAVE") 
+        {
+            li.innerText = "🔴 " + message.content;
+        }
+        else 
+        {
+            li.innerText = message.sender + ": " + message.content;
+        }
+
         document.getElementById("messages").appendChild(li);
     }
 
@@ -60,13 +128,15 @@
         fetch("http://localhost:9090/messages")
             .then(res => res.json())
             .then(data => {
-                document.getElementById("messages").innerHTML = ""; // clear
+                document.getElementById("messages").innerHTML = "";
                 data.forEach(msg => showMessage(msg));
             })
             .catch(err => console.error("Error loading messages:", err));
     }
 
-    connect();
+    // ❌ AUTO CONNECT REMOVE KIYA
+    // connect();
+
     loadOldMessages();
 </script>
 
