@@ -7,137 +7,188 @@
 
 <h2>Real-Time Chat 💬</h2>
 
+<h3>Online Users 🟢</h3>
+<ul id="users"></ul>
+
 <input type="text" id="sender" placeholder="Enter your name"/>
 <input type="text" id="receiver" placeholder="Send to (username)"/>
-<input type="text" id="message" placeholder="Enter message"/>
+
+<!-- ✅ FIXED (single input + typing event) -->
+<input type="text" id="message" placeholder="Enter message" oninput="sendTyping()" />
+
 <button onclick="sendMessage()">Send</button>
 <button onclick="sendPrivateMessage()">Send Private</button>
 <button onclick="connect()">Connect</button>
 
 <ul id="messages"></ul>
+<p id="typing"></p>
 
 <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/stompjs/lib/stomp.min.js"></script>
 
 <script>
-    let stompClient = null;
+let stompClient = null;
 
-    function connect() 
+function connect() 
+{
+    if (stompClient !== null) {
+        alert("Already connected!");
+        return;
+    }
+
+    let sender = document.getElementById("sender").value;
+
+    if (!sender) {
+        alert("Enter your name first!");
+        return;
+    }
+
+    let socket = new SockJS("http://localhost:9090/chat");
+    stompClient = Stomp.over(socket);
+
+    stompClient.connect({}, function () 
     {
-        let sender = document.getElementById("sender").value;
+        console.log("Connected 🔥");
 
-        if (!sender) {
-            alert("Enter your name first!");
-            return;
-        }
+        // disable button
+        document.querySelector("button[onclick='connect()']").disabled = true;
 
-        let socket = new SockJS("http://localhost:9090/chat");
-        stompClient = Stomp.over(socket);
-
-        stompClient.connect({}, function () 
+        // ✅ Broadcast
+        stompClient.subscribe("/topic/messages", function (message) 
         {
-            console.log("Connected 🔥");
-
-            // ✅ Broadcast messages
-            stompClient.subscribe("/topic/messages", function (message) 
-            {
-                let msg = JSON.parse(message.body);
-                showMessage(msg);
-            });
-
-            // 🔥 PRIVATE SUBSCRIBE (FIXED)
-            stompClient.subscribe("/topic/private/" + sender, function (message) 
-            {
-                let msg = JSON.parse(message.body);
-                showMessage(msg);
-            });
-
-            // ✅ JOIN message
-            let joinMessage = 
-            {
-                sender: sender,
-                content: sender + " has joined the chat!",
-                type: "JOIN"
-            };
-
-            stompClient.send("/app/send", {}, JSON.stringify(joinMessage));
+            let msg = JSON.parse(message.body);
+            showMessage(msg);
         });
-    }
 
-    function sendPrivateMessage() 
-    {
-        let sender = document.getElementById("sender").value;
-        let receiver = document.getElementById("receiver").value;
-        let content = document.getElementById("message").value;
-
-        if (!receiver) {
-            alert("Enter receiver name!");
-            return;
-        }
-
-        let msg = 
+        // ✅ Private
+        stompClient.subscribe("/topic/private/" + sender, function (message) 
         {
-            sender: sender,
-            receiver: receiver,
-            content: content,
-            type: "CHAT"
-        };
+            let msg = JSON.parse(message.body);
+            showMessage(msg);
+        });
 
-        console.log("Private Sending:", msg);
-
-        stompClient.send("/app/private", {}, JSON.stringify(msg));
-    }
-
-    function sendMessage() 
-    {
-        let sender = document.getElementById("sender").value;
-        let content = document.getElementById("message").value;
-
-        let message = 
+        // ✅ Users
+        stompClient.subscribe("/topic/users", function (message) 
         {
-            sender: sender,
-            content: content,
-            type: "CHAT"
-        };
+            let users = JSON.parse(message.body);
+            showUsers(users);
+        });
 
-        stompClient.send("/app/send", {}, JSON.stringify(message));
+        // ✅ Typing (FIXED LOCATION)
+        stompClient.subscribe("/topic/typing", function (message) 
+        {
+            let msg = JSON.parse(message.body);
+
+            document.getElementById("typing").innerText =
+                msg.sender + " is typing...";
+
+            setTimeout(() => {
+                document.getElementById("typing").innerText = "";
+            }, 2000);
+        });
+
+        // JOIN
+        stompClient.send("/app/join", {}, JSON.stringify({ sender: sender }));
+    });
+}
+
+// ✅ FIXED JSON SEND
+function sendTyping() 
+{
+    let sender = document.getElementById("sender").value;
+
+    if (!sender || !stompClient) return;
+
+    stompClient.send("/app/typing", {}, JSON.stringify({
+        sender: sender
+    }));
+}
+
+function sendPrivateMessage() 
+{
+    let sender = document.getElementById("sender").value;
+    let receiver = document.getElementById("receiver").value;
+    let content = document.getElementById("message").value;
+
+    if (!receiver) {
+        alert("Enter receiver name!");
+        return;
     }
 
-    function showMessage(message) 
+    let msg = 
     {
+        sender: sender,
+        receiver: receiver,
+        content: content,
+        type: "CHAT"
+    };
+
+    stompClient.send("/app/private", {}, JSON.stringify(msg));
+}
+
+function sendMessage() 
+{
+    let sender = document.getElementById("sender").value;
+    let content = document.getElementById("message").value;
+
+    let message = 
+    {
+        sender: sender,
+        content: content,
+        type: "CHAT"
+    };
+
+    stompClient.send("/app/send", {}, JSON.stringify(message));
+}
+
+function showUsers(users) 
+{
+    let ul = document.getElementById("users");
+    ul.innerHTML = "";
+
+    users.forEach(user => {
         let li = document.createElement("li");
+        li.innerText = user;
 
-        if (message.type === "JOIN") 
-        {
-            li.innerText = "🟢 " + message.content;
-        } 
-        else if (message.type === "LEAVE") 
-        {
-            li.innerText = "🔴 " + message.content;
-        }
-        else 
-        {
-            li.innerText = message.sender + ": " + message.content;
-        }
+        li.onclick = function () {
+            document.getElementById("receiver").value = user;
+        };
 
-        document.getElementById("messages").appendChild(li);
-    }
+        ul.appendChild(li);
+    });
+}
 
-    function loadOldMessages() 
+function showMessage(message) 
+{
+    let li = document.createElement("li");
+    
+    if (message.type === "JOIN") 
     {
-        fetch("http://localhost:9090/messages")
-            .then(res => res.json())
-            .then(data => {
-                document.getElementById("messages").innerHTML = "";
-                data.forEach(msg => showMessage(msg));
-            })
-            .catch(err => console.error("Error loading messages:", err));
+        li.innerText = "🟢 " + message.content;
+    } 
+    else if (message.type === "LEAVE") 
+    {
+        li.innerText = "🔴 " + message.content;
+    }
+    else 
+    {
+        li.innerText = message.sender + ": " + message.content;
     }
 
-    // ❌ AUTO CONNECT REMOVE KIYA
-    // connect();
+    document.getElementById("messages").appendChild(li);
+}
 
-    loadOldMessages();
+function loadOldMessages() 
+{
+    fetch("http://localhost:9090/messages")
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById("messages").innerHTML = "";
+            data.forEach(msg => showMessage(msg));
+        });
+}
+
+loadOldMessages();
 </script>
 
 </body>
